@@ -33,6 +33,8 @@ test_that("min or max years", {
   expect_equal(validate_fys_permitted("1984-85", min.yr = 1982L, max.yr = 1989L), "1984-85", check.attributes = FALSE)
   expect_error(validate_fys_permitted(c("1980-81", "1980-80"), min.yr = 1980L),
                regexp = 'contained "1980-80" which is not a valid financial year.')
+  expect_error(validate_fys_permitted(c("2014-15", "201516", "2015-16"), min.yr = 2016L, deparsed = "x"),
+               regexp = "earliest permitted financial year")
 })
 
 test_that("validation of other types", {
@@ -75,6 +77,63 @@ test_that("Validation memoization", {
                fixed = TRUE)
 
 })
+
+test_that("Validation on UTF-8 endashed fys", {
+  x <- c("2014-15", "2015-16", paste0("2014", intToUtf8(8210L), "15"))
+  y <- validate_fys_permitted(x)
+  expect_true(inherits(y, "fy"))
+})
+
+test_that("Validation on ATO endashed fys", {
+  # Just cells C3 and C4 in Indiviudals_table1_2015-16.xlsx from
+  # the ATO's taxstats collection, should be 1978-79
+  skip_if_not(file.exists(taxed.rds <- system.file("extdata/taxstats-tbl1-C3C4.rds", package = "fy")))
+  taxstats_dash <- readRDS(taxed.rds)
+  x197879 <- names(taxstats_dash)[1]
+  v197879 <- validate_fys_permitted(x197879)
+  expect_true(inherits(v197879, "fy"))
+  expect_equal(fy2yr(x197879), 1979L)
+  expect_equal(fy2yr(v197879), 1979L)
+  expect_equal(fy2date(x197879), as.Date("1979-06-30"))
+  expect_equal(fy2date(v197879), as.Date("1979-06-30"))
+})
+
+test_that("Validation fmatches attribute", {
+  i <- validate_fys_permitted(c("2014-15", "2017-18"), .retain_fmatches = TRUE)
+  expect_identical(attr(i, "fy_fmatches"), c(115L, 118L))
+})
+
+test_that("validation on already validated ranges", {
+  x <- yr2fy(1995:1999)
+  x <- validate_fys_permitted(x, min.yr = 1995L, max.yr = 1999L)
+  expect_equal(fy2yr(min(x)), 1995L)
+  expect_true(inherits(validate_fys_permitted(x, min.yr = 1994L, max.yr = 2000L), "fy"))
+  expect_error(validate_fys_permitted(x, min.yr = 1996L),
+               regexp = 'earlier than the earliest permitted financial year: "1995-96"',
+               fixed = TRUE)
+  expect_error(validate_fys_permitted(x, max.yr = 1996L),
+               regexp = 'later than the latest permitted financial year: "1995-96"',
+               fixed = TRUE)
+  attr(x, "fy_min_yr") <- NULL
+  expect_error(validate_fys_permitted(x, min.yr = 1996L),
+               regexp = 'earlier than the earliest permitted financial year: "1995-96"',
+               fixed = TRUE)
+  expect_error(validate_fys_permitted(x, max.yr = 1996L),
+               regexp = 'later than the latest permitted financial year: "1995-96"',
+               fixed = TRUE)
+  attr(x, "fy_max_yr") <- NULL
+  expect_error(validate_fys_permitted(x, min.yr = 1996L),
+               regexp = 'earlier than the earliest permitted financial year: "1995-96"',
+               fixed = TRUE)
+  expect_error(validate_fys_permitted(x, max.yr = 1996L),
+               regexp = 'later than the latest permitted financial year: "1995-96"',
+               fixed = TRUE)
+})
+
+
+
+
+
 
 
 

@@ -2,13 +2,15 @@
 % Please edit documentation in R/validate_fys_permitted.R
 \name{validate_fys_permitted}
 \alias{validate_fys_permitted}
+\alias{valid-fys}
 \title{Verifying validity of financial years}
 \usage{
 validate_fys_permitted(to_verify, permitted_fys = NULL, min.yr = NULL,
   max.yr = NULL, deparsed = deparse(substitute(to_verify)),
   allow.projection = TRUE,
   earliest_permitted_financial_year = "earliest permitted financial year",
-  latest_permitted_financial_year = "latest permitted financial year")
+  latest_permitted_financial_year = "latest permitted financial year",
+  .retain_fmatches = FALSE)
 }
 \arguments{
 \item{to_verify}{A user-provided value, purporting to be
@@ -28,6 +30,11 @@ to be user-friendly.}
 \item{earliest_permitted_financial_year, latest_permitted_financial_year}{Text
 for earliest/latest permitted financial year when \code{min.yr}/\code{max.yr}
 condition is violated.}
+
+\item{.retain_fmatches}{If \code{TRUE}, the function may retain an attribute
+\code{fy_fmatches}  an integer vector of the matches against the financial years
+\code{"1900-01"} to \code{"2099-00"}. A trade-off between memory and runtime from
+not recalculating matches.}
 }
 \value{
 If \code{to_verify} contains valid financial years
@@ -37,6 +44,7 @@ already in that form, they obtain the following attributes:
 \item{\code{fy_all_fy}}{\code{TRUE} if all the financial years are valid.}
 \item{\code{fy_min_yr}}{An integer, the earliest year ending in \code{to_verify}.}
 \item{\code{fy_max_yr}}{An integer, the latest year ending in \code{to_verify}.}
+\item{\code{fy_fmatches}}{An integer vector, the matches with the prebuilt financial years.}
 }
 }
 \description{
@@ -46,3 +54,34 @@ computationally costly, relative to the core calculations.
 These internal functions provide mechanisms to check validity
 quickly, while still providing clear, accurate error messages.
 }
+\details{
+The preferred form is \code{"2012-13"}, and this function
+ returns all elements of \code{to_verify} in this form. That is, it does
+ not preserve the input form.
+
+ Other forms that are recognized (and converted) are:
+ \itemize{
+   \item{"201213"}
+   \item{"2012 13"}
+   \item{"2012\code{\\u2011}13"}
+   \item{"2012\code{\\u2012}13"}
+   \item{"2012\code{\\u2013}13"}
+   \item{"2012\code{\\u2014}13"}
+   }
+}
+\section{Benchmarks}{
+
+
+\preformatted{
+ x <- rep_len(yr2fy(2004L), 1e9)
+ bench::system_time(validate_fys_permitted(x))
+ #> process    real
+ #>  3.578s  3.576s
+ x <- rep_len(yr2fy(1980:2016), 1e9)
+
+ bench::system_time(validate_fys_permitted(x))
+ #> process    real
+ #>  3.766s  3.753s
+}
+}
+

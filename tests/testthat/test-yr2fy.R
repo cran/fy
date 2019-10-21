@@ -11,7 +11,10 @@ test_that(".yr2fy", {
 
 test_that("fy2yr works", {
   expect_error(fy2yr(c("2014-15", "2015-15")),
-               regexp = "contains non-FYs",
+               regexp = "not a valid financial year",
+               fixed = TRUE)
+  expect_error(fy2yr("2015-15"),
+               regexp = "not a valid financial year",
                fixed = TRUE)
   expect_identical(fy2yr("2014-15"), 2015L)
   expect_equal(fy2yr(c("201415", "2015 16", "2015-16")),
@@ -36,4 +39,14 @@ test_that("accelerator", {
                                       as.Date,
                                       THRESHOLD = 2L),
                as.Date(c("2015-04-04", "2017-04-04", "2016-04-04")))
+})
+
+test_that("yr2fy if given a list", {
+  expect_error(yr2fy(list(x = 1, y = 2:3)),
+               regexp = "atomic")
+})
+
+test_that("yr2fy if not given expected input", {
+  expect_error(yr2fy("2014-15"), regexp = "`yr_ending`.*character")
+  expect_error(.yr2fy("2014-15"), regexp = "`yr_ending`.*character")
 })

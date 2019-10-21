@@ -6,6 +6,8 @@
 #' These internal functions provide mechanisms to check validity
 #' quickly, while still providing clear, accurate error messages.
 #'
+#' @aliases valid-fys
+#'
 #' @param to_verify A user-provided value, purporting to be
 #' character vector of financial years.
 #' @param permitted_fys A character vector of valid financial years.
@@ -20,6 +22,28 @@
 #'  for earliest/latest permitted financial year when \code{min.yr}/\code{max.yr}
 #'  condition is violated.
 #'
+#' @param .retain_fmatches If \code{TRUE}, the function may retain an attribute
+#' \code{fy_fmatches}  an integer vector of the matches against the financial years
+#' \code{"1900-01"} to \code{"2099-00"}. A trade-off between memory and runtime from
+#' not recalculating matches.
+#'
+#' @details The preferred form is \code{"2012-13"}, and this function
+#'  returns all elements of \code{to_verify} in this form. That is, it does
+#'  not preserve the input form.
+#'
+#'  Other forms that are recognized (and converted) are:
+#'  \itemize{
+#'    \item{"201213"}
+#'    \item{"2012 13"}
+#'    \item{"2012\code{\\u2011}13"}
+#'    \item{"2012\code{\\u2012}13"}
+#'    \item{"2012\code{\\u2013}13"}
+#'    \item{"2012\code{\\u2014}13"}
+#'    }
+#'
+#'
+#'
+#'
 #' @return If \code{to_verify} contains valid financial years
 #' they are returned all in the form \code{2013-14}. If they were
 #' already in that form, they obtain the following attributes:
@@ -27,6 +51,21 @@
 #' \item{\code{fy_all_fy}}{\code{TRUE} if all the financial years are valid.}
 #' \item{\code{fy_min_yr}}{An integer, the earliest year ending in \code{to_verify}.}
 #' \item{\code{fy_max_yr}}{An integer, the latest year ending in \code{to_verify}.}
+#' \item{\code{fy_fmatches}}{An integer vector, the matches with the prebuilt financial years.}
+#' }
+#'
+#' @section Benchmarks:
+#'
+#' \preformatted{
+#'  x <- rep_len(yr2fy(2004L), 1e9)
+#'  bench::system_time(validate_fys_permitted(x))
+#'  #> process    real
+#'  #>  3.578s  3.576s
+#'  x <- rep_len(yr2fy(1980:2016), 1e9)
+#'
+#'  bench::system_time(validate_fys_permitted(x))
+#'  #> process    real
+#'  #>  3.766s  3.753s
 #' }
 #'
 #'
@@ -40,7 +79,8 @@ validate_fys_permitted <- function(to_verify,
                                    deparsed = deparse(substitute(to_verify)),
                                    allow.projection = TRUE,
                                    earliest_permitted_financial_year = "earliest permitted financial year",
-                                   latest_permitted_financial_year = "latest permitted financial year") {
+                                   latest_permitted_financial_year = "latest permitted financial year",
+                                   .retain_fmatches = FALSE) {
 
   if (!is.character(to_verify)) {
     stopn("`", deparsed, "` was type ", typeof(to_verify), ", ",
@@ -96,7 +136,7 @@ validate_fys_permitted <- function(to_verify,
       if (max.yr < attr(to_verify, "fy_max_yr")) {
         max.k <- max.yr - 1900L
         deparsed <- force(deparsed)
-        stopn(if (!allow.projection) "`allow.projection = FALSE`, yet ",
+        stopn(if (isFALSE(allow.projection)) "`allow.projection = FALSE`, yet ",
               "`", deparsed,
               if (length(to_verify) == 1L) " = " else "` contained ",
               '"', fys1901[attr(to_verify, "fy_max_yr") - 1900L], '"',
@@ -112,64 +152,81 @@ validate_fys_permitted <- function(to_verify,
   }
 
 
-  fy.year <- to_verify
+
   if (is.null(permitted_fys)) {
-    if (anyNA(fmatches <- fmatch(to_verify, fys1901))) {
-      if (all(are_fy <- is_fy(to_verify))) {
-        nchar_to_verify <- nchar(to_verify)
-        out <- sprintf("%s-%s",
-                       substr(to_verify, 1L, 4L),
-                       substr(to_verify, nchar_to_verify - 1L, nchar_to_verify))
-        return(out)
+    # Use the anyNA virtue of hutils::coalesce
+    if (anyNA3i(fmatches <- fmatch(to_verify, fys1901))) {
+      # Not standard financial year like '2014-15'.
+      # Is it just a nonstandard but valid financial year
+      # or is it not a financial year at all?
+      fmatches <- coalesce3i(fmatches,
+                             fmatch(to_verify, fys1901B),
+                             fmatch(to_verify, fys1901C),
+                             fmatch(to_verify, fys1901_2011),
+                             fmatch(to_verify, fys1901_2012),
+                             fmatch(to_verify, fys1901_2013),
+                             fmatch(to_verify, fys1901_2014))
+      if (anyNA3i(fmatches)) {
+        first_bad <- which.max(is.na(fmatches))
+        stopn("`", deparsed,
+              if (length(to_verify) == 1L) " = " else "` contained ",
+              '"', to_verify[first_bad], '"',
+              if (length(to_verify) == 1L) "` was " else " which is ",
+              "not a valid financial year.")
       }
-      first_bad <- which.min(are_fy)
-      stopn("`", deparsed,
-            if (length(to_verify) == 1L) " = " else "` contained ",
-            '"', to_verify[first_bad], '"',
-            if (length(to_verify) == 1L) "` was " else " which is ",
-            "not a valid financial year.")
-    } else {
-      attr(to_verify, "fy_all_fy") <- TRUE
-      if (!is.null(min.yr)) {
-        min.k <- min.yr - 1900L
-        min_fmatches <- min(fmatches)
-        if (min_fmatches < min.k) {
-          first_bad <- which.min(fmatches)
-          stopn("`", deparsed,
-                if (length(to_verify) == 1L) " = " else "` contained ",
-                '"', to_verify[first_bad], '"',
-                if (length(to_verify) == 1L) "`",
-                " which ",
-                "is earlier than the ",
-                earliest_permitted_financial_year,
-                ": ", '"', fys1901[min.k], '"', ".")
-        }
-        attr(to_verify, "fy_min_yr") <- min_fmatches + 1900L
-      }
-      if (!is.null(max.yr)) {
-        max.k <- max.yr - 1900L
-        max_fmatches <- max(fmatches)
-        if (max_fmatches > max.k) {
-          first_bad <- which.max(fmatches)
-          stopn(if (!allow.projection) "`allow.projection = FALSE`, yet ",
-                "`", deparsed,
-                if (length(to_verify) == 1L) " = " else "` contained ",
-                '"', to_verify[first_bad], '"',
-                if (length(to_verify) == 1L) "`",
-                " which ",
-                "is later than the ",
-                latest_permitted_financial_year,
-                ": ", '"', fys1901[max.k], '"', ".")
-        }
-        attr(to_verify, "fy_max_yr") <-  max_fmatches + 1900L
-      }
-      return(invisible(to_verify))
+
+      # Standardize
+      to_verify <- fys1901[fmatches]
     }
+
+    class(to_verify) <- "fy"
+    attr(to_verify, "fy_all_fy") <- TRUE
+    if (!is.null(min.yr)) {
+      min.k <- min.yr - 1900L
+      min_fmatches <- min(fmatches)
+      if (min_fmatches < min.k) {
+        first_bad <- which.min(fmatches)
+        stopn("`", deparsed,
+              if (length(to_verify) == 1L) " = " else "` contained ",
+              '"', to_verify[first_bad], '"',
+              if (length(to_verify) == 1L) "`",
+              " which ",
+              "is earlier than the ",
+              earliest_permitted_financial_year,
+              ": ", '"', fys1901[min.k], '"', ".")
+      }
+      attr(to_verify, "fy_min_yr") <- min_fmatches + 1900L
+    }
+    if (!is.null(max.yr)) {
+      max.k <- max.yr - 1900L
+      max_fmatches <- max(fmatches)
+      if (max_fmatches > max.k) {
+        first_bad <- which.max(fmatches)
+        stopn(if (isFALSE(allow.projection)) "`allow.projection = FALSE`, yet ",
+              "`", deparsed,
+              if (length(to_verify) == 1L) " = " else "` contained ",
+              '"', to_verify[first_bad], '"',
+              if (length(to_verify) == 1L) "`",
+              " which ",
+              "is later than the ",
+              latest_permitted_financial_year,
+              ": ", '"', fys1901[max.k], '"', ".")
+      }
+      attr(to_verify, "fy_max_yr") <- max_fmatches + 1900L
+    }
+
+    if (isTRUE(.retain_fmatches)) {
+      attr(to_verify, "fy_fmatches") <- fmatches
+    }
+
+    return(invisible(to_verify))
+
   } else {
     permitted_fys <- validate_fys_permitted(permitted_fys)
   }
 
 
+  fy.year <- to_verify
   if (!all(fy.year %chin% permitted_fys)) {
     if (any(!is_fy(fy.year))) {
       i <- which(!is_fy(fy.year))
@@ -215,6 +272,10 @@ validate_fys_permitted <- function(to_verify,
   class(to_verify) <- "fy"
   return(to_verify)
 }
+
+
+
+
 
 
 
